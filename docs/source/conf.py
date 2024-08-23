@@ -6,9 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "millie"
-project_copyright = "2023, Lukas Turcani"
-author = "Lukas Turcani"
+project = "thelab"
+project_copyright = "2024, Greenaway Lab"
+author = "Greenaway Lab"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

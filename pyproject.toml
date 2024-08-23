@@ -3,7 +3,7 @@ requires = ["setuptools", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "millie"
+name = "thelab"
 maintainers = [
   { name = "Lukas Turcani", email = "lukasturcani93@gmail.com" },
 ]
@@ -12,7 +12,7 @@ dependencies = []
 requires-python = ">=3.11"
 dynamic = ["version"]
 readme = "README.rst"
-description = "Does things for you."
+description = "Automate your lab!"
 
 [project.optional-dependencies]
 dev = [
@@ -28,8 +28,8 @@ dev = [
 ]
 
 [project.urls]
-github = "https://github.com/lukasturcani/millie"
-documentation = "https://millie.readthedocs.io"
+github = "https://github.com/lukasturcani/thelab"
+documentation = "https://thelab.readthedocs.io"
 
 [tool.setuptools_scm]
 
