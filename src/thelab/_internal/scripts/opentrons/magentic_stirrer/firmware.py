@@ -1,13 +1,25 @@
+from _thread import start_new_thread
+from enum import Enum, auto
+from sys import exit, stdin
+from typing import Literal, assert_never
+
 import machine
 import utime
-from machine import I2C, Pin, PWM
+from machine import I2C, PWM, Pin
 from ssd1306 import SSD1306_I2C
-from sys import stdin, exit
-from _thread import start_new_thread
+
+
+class StirrerState(Enum):
+    ON = auto()
+    OFF = auto()
+
+
+class InputMode(Enum):
+    LINE = auto()
+    BYTE = auto()
+
 
 # Constants
-ON = "1"
-OFF = "0"
 DELAY = 0.03  # Delay between magnetic pole switches; controls stirring speed
 DUTY_CYCLE = 65535 * 0.75  # 75% duty cycle
 BUFFER_SIZE = 1024  # Circular buffer size
@@ -41,26 +53,29 @@ buffer_next_out = 0
 terminate_thread = False
 
 
-def init_oled_message(message="Ready"):
+def init_oled_message(message: str = "Ready") -> None:
     """Initialize OLED screen with a message."""
     oled.fill(0)
     oled.text(message, 30, 30)
     oled.show()
 
 
-def stirring(data_input):
+def set_stirrer(state: StirrerState) -> None:
     """Control the stirring mechanism based on input."""
-    if data_input == ON:
-        for step in FULL_STEP_SEQUENCE:
-            for i, pin in enumerate(pwm_pins):
-                pin.duty_u16(int(step[i] * DUTY_CYCLE))
-            utime.sleep(DELAY)
-    elif data_input == OFF:
-        for pin in pwm_pins:
-            pin.duty_u16(0)
+    match state:
+        case StirrerState.ON:
+            for step in FULL_STEP_SEQUENCE:
+                for i, pin in enumerate(pwm_pins):
+                    pin.duty_u16(int(step[i] * DUTY_CYCLE))
+                utime.sleep(DELAY)
+        case StirrerState.OFF:
+            for pin in pwm_pins:
+                pin.duty_u16(0)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
-def buffer_stdin():
+def buffer_stdin() -> None:
     """Background function to read from stdin into a buffer."""
     global buffer_next_in, terminate_thread
 
@@ -107,7 +122,7 @@ def get_line_buffer():
     return line
 
 
-def process_input(input_option="LINE"):
+def process_input(input_option: Literal["LINE", "BYTE"] = "LINE") -> None:
     """Main loop to process input in either BYTE or LINE mode."""
     try:
         while True:
@@ -129,7 +144,7 @@ def process_input(input_option="LINE"):
         exit()
 
 
-def handle_input(input_data):
+def handle_input(input_data) -> None:
     """Handle the input and control stirring and OLED display."""
     print(input_data)
     oled.fill(0)
@@ -148,7 +163,7 @@ def handle_input(input_data):
     oled.show()
 
 
-def stirring_loop():
+def stirring_loop() -> None:
     """Loop that controls stirring and checks for OFF signal."""
     while True:
         stirring(ON)
@@ -157,8 +172,12 @@ def stirring_loop():
             break
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main function to initialize OLED screen and start stirring loop."""
     init_oled_message()
     start_new_thread(buffer_stdin, ())
     process_input()
 
+
+if __name__ == "__main__":
+    main()
