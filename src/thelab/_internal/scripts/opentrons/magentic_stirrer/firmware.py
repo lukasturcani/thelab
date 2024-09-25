@@ -45,7 +45,7 @@ class BufferState:
     terminate_thread: bool = False
 
     def buffer_stdin(self) -> None:
-        """Reads incoming USB serial data and stores it in a circular buffer.
+        """Read incoming USB serial data and store it in a circular buffer.
 
         Runs in a separate thread to enable non-blocking input handling.
         """
@@ -101,7 +101,7 @@ class BufferState:
 
 
 def stirring(data_input: str) -> None:
-    """Controle magnetic stirrer based on the input state.
+    """Control magnetic stirrer based on the input state.
 
     Args:
         data_input: '1' to turn the stirrer on, '0' to turn it off.
