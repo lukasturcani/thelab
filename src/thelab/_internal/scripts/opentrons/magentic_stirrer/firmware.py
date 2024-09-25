@@ -1,6 +1,6 @@
 # ruff: noqa: T201
 from dataclasses import dataclass
-from sys import exit, stdin
+from sys import stdin
 from threading import Thread
 
 from machine import I2C, PWM, Pin
@@ -41,8 +41,6 @@ class BufferState:
     buffer: list[str]
     next_in: int
     next_out: int
-    echo: bool = False
-    terminate_thread: bool = False
 
     def get_byte(self) -> str:
         """Retrieve a byte from the circular buffer, if available.
@@ -122,16 +120,17 @@ class StdInThread:
     Runs in a separate thread to enable non-blocking input handling.
     """
 
-    def __init__(self, state: BufferState) -> None:
+    def __init__(self, state: BufferState, *, echo: bool = False) -> None:
         self.state = state
         self.running = False
+        self.echo = echo
 
     def run(self) -> None:
         self.running = True
 
         while self.running:
             self.state.buffer[self.state.next_in] = stdin.read(1)
-            if self.state.echo:
+            if self.echo:
                 print(self.state.buffer[self.state.next_in], end="")
             self.state.next_in = (self.state.next_in + 1) % BUFFER_SIZE
 
@@ -188,8 +187,8 @@ def main() -> None:
             sleep(0.1)
 
     except KeyboardInterrupt:
-        state.terminate_thread = True
-        exit()
+        stdin_thread.running = False
+        raise
 
 
 if __name__ == "__main__":
