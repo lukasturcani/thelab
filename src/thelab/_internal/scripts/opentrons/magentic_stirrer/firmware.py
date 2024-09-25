@@ -1,7 +1,7 @@
 # ruff: noqa: T201
-from _thread import start_new_thread
 from dataclasses import dataclass
 from sys import exit, stdin
+from threading import Thread
 
 from machine import I2C, PWM, Pin
 from ssd1306 import SSD1306_I2C
@@ -43,17 +43,6 @@ class BufferState:
     next_out: int
     echo: bool = False
     terminate_thread: bool = False
-
-    def buffer_stdin(self) -> None:
-        """Read incoming USB serial data and store it in a circular buffer.
-
-        Runs in a separate thread to enable non-blocking input handling.
-        """
-        while not self.terminate_thread:
-            self.buffer[self.next_in] = stdin.read(1)
-            if self.echo:
-                print(self.buffer[self.next_in], end="")
-            self.next_in = (self.next_in + 1) % BUFFER_SIZE
 
     def get_byte(self) -> str:
         """Retrieve a byte from the circular buffer, if available.
@@ -127,6 +116,26 @@ def display_message(message: str) -> None:
     oled.show()
 
 
+class StdInThread:
+    """Read incoming USB serial data and store it in a circular buffer.
+
+    Runs in a separate thread to enable non-blocking input handling.
+    """
+
+    def __init__(self, state: BufferState) -> None:
+        self.state = state
+        self.running = False
+
+    def run(self) -> None:
+        self.running = True
+
+        while self.running:
+            self.state.buffer[self.state.next_in] = stdin.read(1)
+            if self.state.echo:
+                print(self.state.buffer[self.state.next_in], end="")
+            self.state.next_in = (self.state.next_in + 1) % BUFFER_SIZE
+
+
 def handle_stirring_commands(state: BufferState) -> None:
     """Handle the received commands for controlling the magnetic stirrer.
 
@@ -157,7 +166,9 @@ def main() -> None:
     display_message("Ready")
 
     # Start the background thread for buffer management
-    start_new_thread(state.buffer_stdin, ())
+    stdin_thread = StdInThread(state)
+    thread = Thread(target=stdin_thread.run)
+    thread.start()
 
     input_option = "LINE"
     try:
