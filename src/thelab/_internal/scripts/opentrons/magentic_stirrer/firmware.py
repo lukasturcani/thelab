@@ -1,28 +1,45 @@
 # ruff: noqa: T201
-from dataclasses import dataclass
-from sys import stdin
-from threading import Thread
+# Code uploaded to the Raspberry Pi Pico in the magnetic stirrer module before
+# commencing experiment protocol. Allows for serial USB connection between the
+# Raspberry Pi Pico and OT-2 liquid handling platform. File must be uploaded to
+# the Pi Pico with the name "main.py"
 
+from _thread import start_new_thread
+from sys import exit, stdin
+
+import utime
 from machine import I2C, PWM, Pin
 from ssd1306 import SSD1306_I2C
 from utime import sleep
 
 ON = "1"
 OFF = "0"
+# Delay for switching between the magnetic poles on the electromagnets, greater
+# delays = slower stirring speeds
 DELAY = 0.03
-DUTY = int(65535 * 0.75)
-
-# OLED setup
+# Connection for OLED screen
 i2c = I2C(0, sda=Pin(0), scl=Pin(1), freq=100000)
 oled = SSD1306_I2C(128, 64, i2c)
 
-# Pin setup for PWM, treating the magnets as motors
-pins = [PWM(Pin(i)) for i in range(3, 7)]
-for pin in pins:
-    pin.freq(1000)
+# Pin connections, PWM treats the magnets akin to a motor
+pin1 = PWM(Pin(3))
+pin2 = PWM(Pin(4))
+pin3 = PWM(Pin(5))
+pin4 = PWM(Pin(6))
 
-# Step sequence for controlling the magnets
-FULL_STEP_SEQUENCE: list[list[float]] = [
+# Set the frequency and maximum duty of the motor
+pin1.freq(1000)
+pin2.freq(1000)
+pin3.freq(1000)
+pin4.freq(1000)
+
+duty = 65535 * 0.75
+
+# The step sequence corresponds to when each magnet is on or off,
+# 1 = on, 0.7 = partial on, 0 = off
+# Four numbers correspond to 4 magnets and so 8 steps for a full cycle
+# (i.e. full rotation of magnetic stirrer bar)
+full_step_sequence: list[list[float]] = [
     [1, 0, 0, 0],
     [0.7, 0, 0.7, 0],
     [0, 0, 1, 0],
@@ -33,163 +50,189 @@ FULL_STEP_SEQUENCE: list[list[float]] = [
     [0.7, 0, 0, 0.7],
 ]
 
-BUFFER_SIZE = 1024
 
-
-@dataclass
-class BufferState:
-    buffer: list[str]
-    next_in: int
-    next_out: int
-
-    def get_byte(self) -> str:
-        """Retrieve a byte from the circular buffer, if available.
-
-        Returns:
-            The next byte from the buffer, or an empty string if no data
-            is available.
-        """
-        if self.next_out == self.next_in:
-            return ""
-        byte = self.buffer[self.next_out]
-        self.next_out = (self.next_out + 1) % BUFFER_SIZE
-        return byte
-
-    def get_line(self) -> str:
-        """Retrieve a line of text from the circular buffer, if available.
-
-        A line is considered complete when a newline (LF) character is
-        encountered.
-
-        Returns:
-            A line of text from the buffer, or an empty string if no complete
-            line is available.
-        """
-        if self.next_out == self.next_in:
-            return ""
-
-        n = self.next_out
-        while n != self.next_in:
-            if self.buffer[n] == "\x0a":  # Look for LF
-                break
-            n = (n + 1) % BUFFER_SIZE
-
-        if n == self.next_in:
-            return ""
-
-        line = ""
-        while self.next_out != (n + 1) % BUFFER_SIZE:
-            if self.buffer[self.next_out] == "\x0d":  # Ignore CR
-                self.next_out = (self.next_out + 1) % BUFFER_SIZE
-                continue
-            line += self.buffer[self.next_out]
-            self.next_out = (self.next_out + 1) % BUFFER_SIZE
-        return line
-
-
+# Stirring function
 def stirring(data_input: str) -> None:
-    """Control magnetic stirrer based on the input state.
-
-    Args:
-        data_input: '1' to turn the stirrer on, '0' to turn it off.
-    """
-    if data_input == ON:
-        for step in FULL_STEP_SEQUENCE:
-            for i, pin in enumerate(pins):
-                pin.duty_u16(int(step[i] * DUTY))
-            sleep(DELAY)
-    elif data_input == OFF:
-        for pin in pins:
-            pin.duty_u16(0)
-
-
-def display_message(message: str) -> None:
-    """Display a message on the OLED screen.
-
-    Args:
-        message: The message to be displayed.
-    """
-    oled.fill(0)
-    oled.text(message, 0, 0)
-    oled.show()
+    if data_input == ON:  # If function is turned on, magnets turn on
+        for step in full_step_sequence:
+            # Multiplies each number in the step sequence to the maximum duty
+            pin1.duty_u16(int(step[0] * duty))
+            pin2.duty_u16(int(step[1] * duty))
+            pin3.duty_u16(int(step[2] * duty))
+            pin4.duty_u16(int(step[3] * duty))
+            utime.sleep(DELAY)
+    elif data_input == OFF:  # If function is turned off, magnets turn off
+        pin1.duty_u16(0)
+        pin2.duty_u16(0)
+        pin3.duty_u16(0)
+        pin4.duty_u16(0)
 
 
-class StdInThread:
-    """Read incoming USB serial data and store it in a circular buffer.
+oled.fill(0)
+oled.text("Ready", 30, 30)
+oled.show()
 
-    Runs in a separate thread to enable non-blocking input handling.
-    """
+# Online Reference
+#
+# USB serial communication for the Raspberry Pi Pico (RP2040) using the
+# second RP2040 thread/processor (written by Dorian Wiskow - January 2021)
+# https://forums.raspberrypi.com/viewtopic.php?t=302889
+#
 
-    def __init__(self, state: BufferState, *, echo: bool = False) -> None:
-        self.state = state
-        self.running = False
-        self.echo = echo
-
-    def run(self) -> None:
-        self.running = True
-
-        while self.running:
-            self.state.buffer[self.state.next_in] = stdin.read(1)
-            if self.echo:
-                print(self.state.buffer[self.state.next_in], end="")
-            self.state.next_in = (self.state.next_in + 1) % BUFFER_SIZE
-
-
-def handle_stirring_commands(state: BufferState) -> None:
-    """Handle the received commands for controlling the magnetic stirrer.
-
-    Args:
-        state: BufferState object containing buffer and pointers.
-    """
-    buff_line = state.get_line()
-
-    if buff_line == ON:
-        display_message("Stirring in\nProgress")
-        while True:
-            stirring(ON)
-            buff_line = state.get_line()
-            if buff_line == OFF:
-                stirring(OFF)
-                display_message("Off")
-                break
-    elif buff_line == OFF:
-        stirring(OFF)
-        display_message("Off")
-    else:
-        display_message("Error")
+# Global variables to share between both threads/processors
+buffer_size = 1024  # Size of circular buffer to allocate
+buffer = [
+    " "
+] * buffer_size  # Circular incoming USB serial data buffer (pre-fill)
+buffer_echo = False  # USB serial port echo incoming characters (True/False)
+buffer_next_in, buffer_next_out = (
+    0,
+    0,
+)  # Pointers to next in/out character in circular buffer
+terminate_thread = (
+    False  # Tell 'buffer_stdin' function to terminate (True/False)
+)
 
 
-def main() -> None:
-    state = BufferState(buffer=[" "] * BUFFER_SIZE, next_in=0, next_out=0)
+# buffer_stdin() function to execute in parallel on second Pico RP2040
+# thread/processor
+def buffer_stdin() -> None:
+    global buffer_next_in  # noqa: PLW0603
 
-    display_message("Ready")
-
-    # Start the background thread for buffer management
-    stdin_thread = StdInThread(state)
-    thread = Thread(target=stdin_thread.run)
-    thread.start()
-
-    input_option = "LINE"
-    try:
-        while True:
-            if input_option == "BYTE":
-                buff_ch = state.get_byte()
-                if buff_ch:
-                    print(f"Received data = {buff_ch}")
-                    if buff_ch == ON:
-                        stirring(ON)
-                    elif buff_ch == OFF:
-                        stirring(OFF)
-
-            elif input_option == "LINE":
-                handle_stirring_commands(state)
-
-            sleep(0.1)
-
-    except KeyboardInterrupt:
-        stdin_thread.running = False
-        raise
+    while True:  # Endless loop
+        if terminate_thread:  # If requested by main thread ...
+            break  # ... exit loop
+        buffer[buffer_next_in] = stdin.read(
+            1
+        )  # Wait for/store next byte from USB serial
+        if buffer_echo:  # If echo is True ...
+            print(
+                buffer[buffer_next_in], end=""
+            )  # ... output byte to USB serial
+        buffer_next_in += 1  # Bump pointer
+        if buffer_next_in == buffer_size:  # ... and wrap, if necessary
+            buffer_next_in = 0
 
 
-if __name__ == "__main__":
-    main()
+# Instantiate second 'background' thread on RP2040 dual processor to monitor
+# and buffer incoming data from 'stdin' over USB serial port using
+# buffer_stdin function (above)
+buffer_stdin_thread = start_new_thread(buffer_stdin, ())
+
+
+# Function to check if a byte is available in the buffer and if so, return it
+def get_byte_buffer() -> str:
+    global buffer_next_out  # noqa: PLW0603
+
+    if buffer_next_out == buffer_next_in:  # If no unclaimed byte in buffer ...
+        return ""  # ... return a null string
+    n = buffer_next_out  # Save current pointer
+    buffer_next_out += 1  # Bump pointer
+    if buffer_next_out == buffer_size:  # ... wrap, if necessary
+        buffer_next_out = 0
+    return buffer[n]  # Return byte from buffer
+
+
+# Function to check if a line is available in the buffer and if so, return it
+# Otherwise, return a null string
+def get_line_buffer() -> str:  # noqa: C901
+    global buffer_next_out  # noqa: PLW0603
+
+    if buffer_next_out == buffer_next_in:  # If no unclaimed byte in buffer ...
+        return ""  # ... RETURN a null string
+
+    n = buffer_next_out  # Search for a LF in unclaimed bytes
+    while n != buffer_next_in:
+        if buffer[n] == "\x0a":  # If a LF found ...
+            break  # ... exit loop ('n' pointing to LF)
+        n += 1  # Bump pointer
+        if n == buffer_size:  # ... wrap, if necessary
+            n = 0
+    if n == buffer_next_in:  # If no LF found ...
+        return ""  # ... RETURN a null string
+
+    line = ""  # LF found in unclaimed bytes at pointer 'n'
+    n += 1  # Bump pointer past LF
+    if n == buffer_size:  # ... wrap, if necessary
+        n = 0
+
+    while (
+        buffer_next_out != n
+    ):  # Build line to RETURN until LF pointer 'n' hit
+        if buffer[buffer_next_out] == "\x0d":  # If byte is CR
+            buffer_next_out += 1  # Bump pointer
+            if buffer_next_out == buffer_size:  # ... wrap, if necessary
+                buffer_next_out = 0
+            continue  # Ignore (strip) any CR (\x0d) bytes
+
+        if buffer[buffer_next_out] == "\x0a":  # If current byte is LF ...
+            buffer_next_out += 1  # Bump pointer
+            if buffer_next_out == buffer_size:  # ... wrap, if necessary
+                buffer_next_out = 0
+            break  # Exit loop, ignoring (i.e. strip) LF byte
+        line = line + buffer[buffer_next_out]  # Add byte to line
+        buffer_next_out += 1  # Bump pointer
+        if buffer_next_out == buffer_size:  # Wrap, if necessary
+            buffer_next_out = 0
+    return line  # RETURN unclaimed line of input
+
+
+# Main program begins here ...
+try:
+    input_option = "LINE"  # Get input from buffer one BYTE or LINE at a time
+    while True:
+        if input_option == "BYTE":  # NON-BLOCKING input one byte at a time
+            buff_ch = get_byte_buffer()  # Get a byte if it is available
+            if buff_ch:
+                print(
+                    "received data = " + buff_ch
+                )  # Print it out to the USB serial port
+                if buff_ch == ON:
+                    # Print it out to the USB serial port
+                    print("one")
+                    buff_ch = get_byte_buffer()
+                    if buff_ch == OFF:
+                        break
+                elif buff_ch == OFF:
+                    # Print it out to the USB serial port
+                    print("zero")
+
+        elif (
+            input_option == "LINE"
+        ):  # NON-BLOCKING input one line at a time (ending LF)
+            buff_line = get_line_buffer()  # Get a line if it is available?
+            if buff_line:  # If there is...
+                print(buff_line)
+                oled.fill(0)
+                oled.text(buff_line, 0, 0)
+                oled.show()
+                if buff_line == ON:  # If the stirrer is on...
+                    oled.text("Stirring in", 10, 20)
+                    oled.text("Progress", 10, 30)
+                    oled.show()
+                    while True:
+                        stirring(ON)  # Stirring function turns on
+                        buff_line = get_line_buffer()
+                        if buff_line == OFF:
+                            # Repeatedly checks for a 0 value to break out of
+                            # the loop and turn off the stirrer
+                            stirring(OFF)
+                            oled.fill(0)
+                            oled.text("Off", 30, 30)
+                            break
+                elif buff_line == OFF:
+                    stirring(OFF)
+                    oled.fill(0)
+                    oled.text("Off", 30, 30)
+                else:
+                    # Outputs an error message if a value other than 0 or 1 is
+                    # received by the Pi Pico
+                    oled.fill(0)
+                    oled.text("Error", 30, 30)
+                oled.show()
+
+        sleep(0.1)
+
+except KeyboardInterrupt:  # Trap Ctrl-C input
+    terminate_thread = True  # Signal second 'background' thread to terminate
+    exit()
