@@ -1,8 +1,7 @@
 # Code developed when testing the control of the electromagnets to test
 # stirring control of the module from its Raspberry Pi Pico
 
-import utime
-from machine import I2C, PWM, Pin
+import utime from machine import I2C, PWM, Pin
 from ssd1306 import SSD1306_I2C
 
 ON = "1"
