@@ -4,14 +4,14 @@ from thelab._internal.serial_manager import SerialManager
 
 
 class OpenTurbidityClient:
-    def __init__(self, port: str = None):
+    def __init__(self, port: str | None = None):
         self.hand_shaken: bool = False
         self._serial_manager = SerialManager(port=port)
 
-    def check_busy(self):
+    def check_busy(self) -> bool:
         return self._serial_manager.check_is_busy()
 
-    def wait_busy(self, time_out: int = 5):
+    def wait_busy(self, time_out: int = 5) -> None:
         return self._serial_manager.wait_busy(time_out=time_out)
 
     def hello(self) -> bool:
@@ -74,7 +74,7 @@ class OpenTurbidityClient:
         self._serial_manager.check_error(cmd, info)
         return info
 
-    def set_folder_name(self, folder) -> str:
+    def set_folder_name(self, folder: str) -> str:
         cmd, info, is_query = self._serial_manager.send_and_read(
             "F", False, folder
         )
@@ -87,7 +87,7 @@ class OpenTurbidityClient:
         info: str | int
         self._serial_manager.check_error(cmd, info)
         split_str = info.split(",")
-        return_tuple: tuple = (
+        return_tuple = (
             float(split_str[0]),
             float(split_str[1]),
             float(split_str[2]),
